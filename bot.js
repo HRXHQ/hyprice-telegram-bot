@@ -19,12 +19,12 @@ const bot = new TelegramBot(token, { polling: true });
 
 /**
  * Fetch token data from DexScreener API.
- * @param {string} tokenAddress - The token contract address.
+ * @param {string} pairAddress - The token pair contract address.
  * @returns {Promise<object|null>} - The JSON response from DexScreener or null on error.
  */
-async function fetchTokenData(tokenAddress) {
+async function fetchTokenData(pairAddress) {
   try {
-    const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
+    const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${pairAddress}`);
     return response.data;
   } catch (error) {
     console.error("Error fetching token data:", error);
@@ -36,9 +36,9 @@ async function fetchTokenData(tokenAddress) {
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeMessage = 
-    "Welcome to the HyPrice Telegram Bot!\n\n" +
+    "Welcome to the Hyprice Telegram Bot!\n\n" +
     "To track a token, send a message in the following format:\n" +
-    "$SYMBOL: token_address\n\n" +
+    "$SYMBOL: pair_address\n\n" +
     "Example:\n" +
     "$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c";
   bot.sendMessage(chatId, welcomeMessage);
@@ -50,15 +50,17 @@ bot.on('message', async (msg) => {
   const text = msg.text && msg.text.trim();
   
   // Regex to match the token tracking format, e.g., "$HYPE: 0x..."
-  const tokenRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{40})$/;
-  const match = text.match(tokenRegex);
+  const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{40})$/i;
+  const match = text.match(pairRegex);
   
   if (match) {
     const tokenSymbol = match[1];
-    const tokenAddress = match[2];
+    const pairAddress = match[2];
+    
+    console.log(`Received tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
     
     // Fetch initial token data from DexScreener
-    let tokenData = await fetchTokenData(tokenAddress);
+    let tokenData = await fetchTokenData(pairAddress);
     if (!tokenData) {
       bot.sendMessage(chatId, "Failed to fetch token data. Please try again later.");
       return;
@@ -73,17 +75,17 @@ bot.on('message', async (msg) => {
     
     const price = pair.priceUsd || "N/A";
     let messageText = `Tracking Token: $${tokenSymbol}\n` +
-                      `Address: ${tokenAddress}\n` +
+                      `Pair Address: ${pairAddress}\n` +
                       `Price: $${price}\n\n` +
                       `Last updated: ${new Date().toLocaleTimeString()}`;
     
-    // Create an inline keyboard with a button linking to the DexScreener page
+    // Create an inline keyboard with a button linking to the DexScreener page (Hyperliquid themed)
     const inlineKeyboard = {
       inline_keyboard: [
         [
           {
-            text: "View on DexScreener",
-            url: `https://dexscreener.com/hyperliquid/${tokenAddress}`
+            text: "🔷 View on Hyperliquid",
+            url: `https://dexscreener.com/hyperliquid/${pairAddress}`
           }
         ]
       ]
@@ -102,7 +104,7 @@ bot.on('message', async (msg) => {
     
     // Set up periodic updates every 15 seconds to refresh the pinned message
     setInterval(async () => {
-      let updatedData = await fetchTokenData(tokenAddress);
+      let updatedData = await fetchTokenData(pairAddress);
       if (!updatedData) return;
       
       const updatedPair = updatedData.pairs && updatedData.pairs[0];
@@ -110,7 +112,7 @@ bot.on('message', async (msg) => {
       
       const updatedPrice = updatedPair.priceUsd || "N/A";
       let updatedText = `Tracking Token: $${tokenSymbol}\n` +
-                        `Address: ${tokenAddress}\n` +
+                        `Pair Address: ${pairAddress}\n` +
                         `Price: $${updatedPrice}\n\n` +
                         `Last updated: ${new Date().toLocaleTimeString()}`;
       
@@ -123,13 +125,13 @@ bot.on('message', async (msg) => {
       } catch (err) {
         console.error("Error updating pinned message:", err);
       }
-    }, 15000); // 15,000 ms = 15 seconds
+    }, 15000); // 15 seconds interval
     
-    return; // Exit the handler for this message
+    return; // Exit after processing a valid token tracking request
   }
   
-  // (Optional) For non-token messages, you can choose to ignore or handle them differently.
-  // For now, we do nothing if the message doesn't match the token format.
+  // (Optional) You could send a notice if the message format is unrecognized.
+  // For now, non-matching messages are ignored.
 });
 
-console.log("HyPrice Telegram Bot is running...");
+console.log("Hyprice Telegram Bot is running...");
