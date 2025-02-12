@@ -67,7 +67,7 @@ function debugLog(...args) {
   console.log("[DEBUG]", ...args);
 }
 
-// Handle polling errors (e.g., 409 Conflict when another instance is running)
+// Handle polling errors
 bot.on("polling_error", (error) => {
   console.error("Polling error:", error);
   if (error && error.message && error.message.includes("409 Conflict")) {
@@ -78,6 +78,7 @@ bot.on("polling_error", (error) => {
 
 /**
  * Fetch token data by scraping the Dexscreener website.
+ * Uses updated headers and selectors.
  * @param {string} pairAddress - The token (or pair) contract address.
  * @returns {Promise<object|null>} - Returns an object with { priceUsd, priceChange } or null on error.
  */
@@ -87,27 +88,23 @@ async function fetchTokenDataFromWebsite(pairAddress) {
     const url = `https://dexscreener.com/hyperliquid/${pairAddress}`;
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5'
       }
     });
     const html = response.data;
     const $ = cheerio.load(html);
-
-    // Use selectors based on the Dexscreener layout.
-    // For example, the current USD price might be inside:
-    let price = $('div.priceContainer span.value').first().text().trim();
-    // If not found, try a fallback:
+    // UPDATED SELECTORS (adjust these as needed by inspecting the page)
+    let price = $('span[data-testid="PairPrice"]').first().text().trim();
     if (!price) {
+      // Fallback if not found
       price = $('span.price').first().text().trim();
     }
-    // Similarly, for the 24h change, try:
-    let changeText = $('div.priceContainer span.change').first().text().trim();
+    let changeText = $('span[data-testid="PairPriceChange"]').first().text().trim();
     if (!changeText) {
       changeText = $('span.change').first().text().trim();
     }
-
     debugLog("Scraped price:", price, "Change:", changeText);
     return {
       priceUsd: price,
@@ -165,6 +162,7 @@ async function updateChatTokens(chatId) {
     const data = await fetchTokenDataFromWebsite(tokenInfo.pairAddress);
     if (data) {
       const newPrice = data.priceUsd || "N/A";
+      // Process the 24h change value (strip any '%' sign and convert to number)
       const changeStr = data.priceChange;
       let changeIndicator = "";
       if (changeStr) {
@@ -245,7 +243,7 @@ bot.onText(/\/help/, (msg) => {
 
 • <b>Aggregated Updates:</b> All tokens you track in a chat are combined into one pinned message that updates every 15 seconds with the latest prices and 24h changes.
 
-• <b>View Details:</b> Each token in the pinned message has a "View" button to see more details on DexScreener.
+• <b>View Details:</b> Each token in the pinned message has a "View" button to see more details on Dexscreener.
 
 • <b>Remove Tokens:</b> Use the "Remove" button next to a token to delete it from your watchlist.
 
