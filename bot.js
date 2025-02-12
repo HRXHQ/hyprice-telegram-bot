@@ -22,6 +22,7 @@ const bot = new TelegramBot(token, { polling: true });
 const DATA_FILE = 'trackedChats.json';
 
 // Global object for storing watchlists by chat ID
+// Structure: { [chatId]: { tokens: { SYMBOL: { pairAddress, lastPrice, lastChange } } } }
 let trackedChats = {};
 
 // Load persistent data if available
@@ -34,16 +35,16 @@ if (fs.existsSync(DATA_FILE)) {
   }
 }
 
-// Define default tokens with valid Hyperliquid addresses
+// Define default tokens with the correct token addresses (using your correct token address)
 const defaultTokens = {
   "HYPE": { 
-    pairAddress: "0x13ba5fea7078ab3798fbce53b4d0721c1e497d9766114b944cb9b6e4d3b0e86d",
-    lastPrice: null,
+    pairAddress: "0x13ba5fea7078ab3798fbce53b4d0721c", 
+    lastPrice: null, 
     lastChange: "" 
   },
   "HFUN": { 
-    pairAddress: "0x929bdfee96b790d3ff9a6cb31e96147e9b9d6c48eefc1e2e0f14a7fd1a76f2d9",
-    lastPrice: null,
+    pairAddress: "0x929bdfee96b790d3ff9a6cb31e96147e", 
+    lastPrice: null, 
     lastChange: "" 
   }
 };
@@ -58,55 +59,68 @@ function savePersistentData() {
   }
 }
 
+// Debug logging helper
+function debugLog(...args) {
+  console.log("[DEBUG]", ...args);
+}
+
 // Generate the aggregated watchlist message and inline keyboard
 function generateAggregatedMessage(chatId) {
   const chatData = trackedChats[chatId];
   let text = `<b>Hyprice Watchlist</b>\n`;
-  text += `<i>Real-time Hyperliquid price tracking</i>\n\n`;
-  
+  text += `<i>Real-time Hyperliquid token price tracking</i>\n\n`;
+  text += `<b>Tracked Tokens:</b>\n\n`;
+  let inlineKeyboard = [];
   for (const symbol in chatData.tokens) {
     const tokenData = chatData.tokens[symbol];
-    const price = tokenData.lastPrice ? `$${parseFloat(tokenData.lastPrice).toFixed(4)}` : "N/A";
-    text += `<b>$${symbol}</b>\n`;
-    text += `📍 <code>${tokenData.pairAddress}</code>\n`;
-    text += `💰 Price: ${price}\n`;
-    text += `📊 24h Change: ${tokenData.lastChange || "N/A"}\n\n`;
-  }
-  
-  const inlineKeyboard = Object.keys(chatData.tokens).map(symbol => [
-    {
-      text: `📈 $${symbol} Chart`,
-      url: `https://dexscreener.com/hyperliquid/${chatData.tokens[symbol].pairAddress}`
-    },
-    {
-      text: `❌ Remove`,
-      callback_data: `remove_${symbol}`
+    text += `<b>$${symbol}</b>: <code>${tokenData.pairAddress}</code>\n`;
+    const priceDisplay = tokenData.lastPrice ? `$${parseFloat(tokenData.lastPrice).toFixed(4)}` : "N/A";
+    text += `💰 Price: <b>${priceDisplay}</b>`;
+    if (tokenData.lastChange && tokenData.lastChange !== "") {
+      text += ` (${tokenData.lastChange})`;
     }
-  ]);
-
+    text += `\n\n`;
+    inlineKeyboard.push([
+      {
+        text: `📈 View $${symbol}`,
+        url: `https://dexscreener.com/hyperliquid/${tokenData.pairAddress}`
+      },
+      {
+        text: `❌ Remove`,
+        callback_data: `remove_${symbol}`
+      }
+    ]);
+  }
   return { text, inlineKeyboard: { inline_keyboard: inlineKeyboard } };
 }
 
-// Update token data for all tokens in a chat
+// Update token data for all tokens in a chat by scraping the token page
 async function updateChatTokens(chatId) {
   const chatData = trackedChats[chatId];
   let updated = false;
-  
   for (const symbol in chatData.tokens) {
     const tokenInfo = chatData.tokens[symbol];
     try {
       const data = await getTokenData(tokenInfo.pairAddress);
       if (data && data.priceUsd && data.priceChange) {
-        // Clean and format price
+        // Remove any non-numeric characters from price and format
         const cleanPrice = parseFloat(data.priceUsd.replace(/[^0-9.]/g, ''));
-        tokenInfo.lastPrice = cleanPrice.toFixed(4);
-        
-        // Format price change
-        const changeValue = parseFloat(data.priceChange.replace('%', ''));
-        tokenInfo.lastChange = `${changeValue >= 0 ? '🟢 +' : '🔴 '}${Math.abs(changeValue).toFixed(2)}%`;
-        
+        tokenInfo.lastPrice = isNaN(cleanPrice) ? "N/A" : cleanPrice.toFixed(4);
+        // Process the 24h change
+        const changeStr = data.priceChange;
+        let changeIndicator = "";
+        if (changeStr) {
+          const cleanChange = changeStr.replace("%", "").trim();
+          const num = parseFloat(cleanChange);
+          if (!isNaN(num)) {
+            changeIndicator = (num >= 0 ? "🟢 +" : "🔴 ") + Math.abs(num).toFixed(2) + "%";
+          }
+        }
+        tokenInfo.lastChange = changeIndicator;
         updated = true;
-        console.log(`Updated ${symbol}: $${tokenInfo.lastPrice} (${tokenInfo.lastChange})`);
+        debugLog(`Updated ${symbol}: Price = $${tokenInfo.lastPrice}, Change = ${tokenInfo.lastChange}`);
+      } else {
+        debugLog(`No valid data for ${symbol}`);
       }
     } catch (error) {
       console.error(`Error updating ${symbol}:`, error.message);
@@ -115,22 +129,17 @@ async function updateChatTokens(chatId) {
   return updated;
 }
 
-// Send the aggregated watchlist message
+// Send the aggregated watchlist message (without pinning)
 async function sendWatchlist(chatId) {
-  try {
-    await updateChatTokens(chatId);
-    const aggregated = generateAggregatedMessage(chatId);
-    await bot.sendMessage(chatId, aggregated.text, {
-      reply_markup: aggregated.inlineKeyboard,
-      parse_mode: "HTML"
-    });
-  } catch (error) {
-    console.error("Error sending watchlist:", error.message);
-    bot.sendMessage(chatId, "❌ Error fetching latest prices. Please try again later.");
-  }
+  await updateChatTokens(chatId);
+  const aggregated = generateAggregatedMessage(chatId);
+  await bot.sendMessage(chatId, aggregated.text, {
+    reply_markup: aggregated.inlineKeyboard,
+    parse_mode: "HTML"
+  });
 }
 
-// /start command handler
+// /start command: Initialize the chat and load default tokens if needed, then send a welcome message.
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   if (!trackedChats[chatId]) {
@@ -139,64 +148,71 @@ bot.onText(/\/start/, (msg) => {
   }
   const welcome = `<b>🚀 Welcome to Hyprice Tracker!</b>\n\n`
     + `I track token prices on Hyperliquid in real-time!\n\n`
-    + `✅ <b>Default tokens added:</b>\n`
+    + `✅ Default tokens added:\n`
     + `- $HYPE\n`
     + `- $HFUN\n\n`
-    + `Use /watchlist to view prices\n`
-    + `Use /help for instructions`;
+    + `Use /watchlist to view your watchlist.\n`
+    + `Use /help for instructions.`;
   bot.sendMessage(chatId, welcome, { parse_mode: "HTML" });
 });
 
-// /help command handler
+// /help command: Display instructions.
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
-  const helpMsg = `<b>📖 Help Guide</b>\n\n`
-    + `<b>Add Token:</b>\n<code>$SYMBOL: pair_address</code>\n\n`
-    + `<b>Example:</b>\n<code>$HYPE: 0x13ba5f...0e86d</code>\n\n`
-    + `<b>Commands:</b>\n`
-    + `/start - Initialize bot\n`
-    + `/watchlist - Show tracked tokens\n`
-    + `/help - Show this message\n\n`
-    + `🔍 Addresses must be valid 32-character Hyperliquid pool addresses`;
+  const helpMsg = `<b>📖 Hyprice Tracker - Help</b>\n\n`
+    + `<b>Add Token:</b>\nSend a message in the format: <code>$SYMBOL: token_address</code>\n\n`
+    + `<b>View Watchlist:</b>\nUse /watchlist to see the latest prices and 24h changes.\n\n`
+    + `<b>Remove Token:</b>\nPress the "❌ Remove" button to remove a token.\n\n`
+    + `Addresses must be valid Hyperliquid token addresses (starting with 0x).\n`;
   bot.sendMessage(chatId, helpMsg, { parse_mode: "HTML" });
 });
 
-// Callback query handler
+// /watchlist command: Resend the aggregated watchlist message.
+bot.onText(/\/watchlist/, async (msg) => {
+  const chatId = msg.chat.id;
+  if (!trackedChats[chatId]) {
+    trackedChats[chatId] = { tokens: { ...defaultTokens } };
+    savePersistentData();
+  }
+  await sendWatchlist(chatId);
+});
+
+// Callback query handler for removing tokens.
 bot.on('callback_query', async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
-  
   if (data.startsWith("remove_")) {
     const symbol = data.replace("remove_", "");
-    if (trackedChats[chatId]?.tokens[symbol]) {
+    if (trackedChats[chatId] && trackedChats[chatId].tokens[symbol]) {
       delete trackedChats[chatId].tokens[symbol];
       savePersistentData();
-      bot.answerCallbackQuery(callbackQuery.id, { text: `✅ Removed $${symbol}` });
+      bot.answerCallbackQuery(callbackQuery.id, { text: `✅ Removed $${symbol} from watchlist.` });
       await sendWatchlist(chatId);
+    } else {
+      bot.answerCallbackQuery(callbackQuery.id, { text: "Token not found." });
     }
+  } else {
+    bot.answerCallbackQuery(callbackQuery.id);
   }
 });
 
-// Message handler for adding tokens
+// Message handler for adding tokens via messages.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   if (!msg.text) return;
-
-  // Add token command
-  if (msg.text.startsWith('$')) {
-    const match = msg.text.match(/^\$(\w+):\s*(0x[a-fA-F0-9]{64})$/);
-    if (match) {
-      const [_, symbol, pairAddress] = match;
-      trackedChats[chatId] = trackedChats[chatId] || { tokens: {} };
-      trackedChats[chatId].tokens[symbol] = {
-        pairAddress,
-        lastPrice: null,
-        lastChange: ""
-      };
-      savePersistentData();
-      bot.sendMessage(chatId, `✅ Added $${symbol} to watchlist!`);
-      await sendWatchlist(chatId);
-    }
+  const text = msg.text.trim();
+  // Expect messages in the format: $SYMBOL: token_address
+  // Adjust the regex to accept addresses between 36 and 42 characters (e.g., 0x followed by 34–40 hex digits)
+  const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{34,42})$/;
+  const match = text.match(pattern);
+  if (match) {
+    const symbol = match[1];
+    const tokenAddress = match[2];
+    trackedChats[chatId] = trackedChats[chatId] || { tokens: {} };
+    trackedChats[chatId].tokens[symbol] = { pairAddress: tokenAddress, lastPrice: null, lastChange: "" };
+    savePersistentData();
+    bot.sendMessage(chatId, `✅ Added $${symbol} to watchlist!`);
+    await sendWatchlist(chatId);
   }
 });
 
