@@ -53,16 +53,22 @@ async function fetchTokenData(pairAddress) {
 
 /**
  * Generate an aggregated message and inline keyboard for a chat based on its tracked tokens.
+ * This message is formatted in HTML.
  * @param {string} chatId - The chat identifier.
  * @returns {object} - { text: string, inlineKeyboard: object }
  */
 function generateAggregatedMessage(chatId) {
   const chatData = trackedChats[chatId];
-  let text = "Tracked Tokens:\n\n";
+  // Header with a Hyperliquid-themed title and an example image link (clickable)
+  let text = `<b>💎 Hyperliquid Token Tracker</b>\n`;
+  text += `<i>View our <a href="https://pbs.twimg.com/profile_images/1646991609416806408/vKLEZxhh_400x400.png">brand</a> vibe</i>\n\n`;
+  text += `<b>Tracked Tokens:</b>\n\n`;
+
   let inlineKeyboard = [];
   for (const tokenSymbol in chatData.tokens) {
     const tokenData = chatData.tokens[tokenSymbol];
-    text += `$${tokenSymbol}: ${tokenData.pairAddress}\nPrice: $${tokenData.lastPrice || "N/A"} (Last updated: ${tokenData.lastUpdated || "-"})\n\n`;
+    text += `<b>$${tokenSymbol}</b>: <code>${tokenData.pairAddress}</code>\n`;
+    text += `Price: <b>$${tokenData.lastPrice || "N/A"}</b> &mdash; Last updated: <i>${tokenData.lastUpdated || "-"}</i>\n\n`;
     inlineKeyboard.push([
       {
         text: `🔷 View $${tokenSymbol}`,
@@ -99,7 +105,8 @@ async function updateChatTokens(chatId) {
       await bot.editMessageText(aggregated.text, {
         chat_id: chatId,
         message_id: chatData.pinnedMessageId,
-        reply_markup: aggregated.inlineKeyboard
+        reply_markup: aggregated.inlineKeyboard,
+        parse_mode: "HTML"
       });
       debugLog(`Updated aggregated message for chat ${chatId}`);
     } catch (err) {
@@ -122,16 +129,16 @@ function startUpdateLoop(chatId) {
   }
 }
 
-// Handle the /start command
+// Handle the /start command with HTML formatting.
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeMessage =
-    "Welcome to the Hyprice Telegram Bot!\n\n" +
-    "To track a token, send a message in the following format:\n" +
-    "$SYMBOL: pair_address\n\n" +
-    "Example:\n" +
-    "$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c";
-  bot.sendMessage(chatId, welcomeMessage)
+    `<b>Welcome to the Hyprice Telegram Bot!</b>\n\n` +
+    `To track a token, send a message in the following format:\n` +
+    `<code>$SYMBOL: pair_address</code>\n\n` +
+    `Example:\n` +
+    `<code>$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c</code>`;
+  bot.sendMessage(chatId, welcomeMessage, { parse_mode: "HTML" })
     .then(() => debugLog("Sent welcome message"))
     .catch(err => console.error("Error sending /start message:", err.toString()));
 });
@@ -167,7 +174,10 @@ bot.on('message', async (msg) => {
     if (!trackedChats[chatId].pinnedMessageId) {
       const aggregated = generateAggregatedMessage(chatId);
       try {
-        const sentMsg = await bot.sendMessage(chatId, aggregated.text, { reply_markup: aggregated.inlineKeyboard });
+        const sentMsg = await bot.sendMessage(chatId, aggregated.text, {
+          reply_markup: aggregated.inlineKeyboard,
+          parse_mode: "HTML"
+        });
         trackedChats[chatId].pinnedMessageId = sentMsg.message_id;
         await bot.pinChatMessage(chatId, sentMsg.message_id);
         debugLog("Pinned aggregated tracking message for chat", chatId);
@@ -183,7 +193,8 @@ bot.on('message', async (msg) => {
         await bot.editMessageText(aggregated.text, {
           chat_id: chatId,
           message_id: trackedChats[chatId].pinnedMessageId,
-          reply_markup: aggregated.inlineKeyboard
+          reply_markup: aggregated.inlineKeyboard,
+          parse_mode: "HTML"
         });
         debugLog("Updated aggregated tracking message for chat", chatId);
       } catch (err) {
