@@ -3,7 +3,7 @@
 // Load environment variables from .env file
 require('dotenv').config();
 
-// Import necessary modules
+// Import required modules
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -67,7 +67,7 @@ function debugLog(...args) {
   console.log("[DEBUG]", ...args);
 }
 
-// Handle polling errors (e.g., 409 Conflict when another instance is running)
+// Handle polling errors
 bot.on("polling_error", (error) => {
   console.error("Polling error:", error);
   if (error && error.message && error.message.includes("409 Conflict")) {
@@ -78,29 +78,25 @@ bot.on("polling_error", (error) => {
 
 /**
  * Fetch token data by scraping the Dexscreener website.
- * @param {string} pairAddress - The token (or pair) contract address.
- * @returns {Promise<object|null>} - Returns an object with priceUsd and priceChange, or null on error.
+ * @param {string} pairAddress - The token pair contract address.
+ * @returns {Promise<object|null>} - Returns an object with { priceUsd, priceChange } or null on error.
  */
 async function fetchTokenDataFromWebsite(pairAddress) {
   try {
     debugLog("Fetching webpage for", pairAddress);
     const url = `https://dexscreener.com/hyperliquid/${pairAddress}`;
-    const response = await axios.get(url);
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    });
     const html = response.data;
     const $ = cheerio.load(html);
-
-    // Adjust the selectors below as necessary based on the website's HTML structure.
-    // For example, assume the current price is in an element with class "priceUsd" or fallback to ".price".
-    let price = $('.priceUsd').first().text().trim();
-    if (!price) {
-      price = $('.price').first().text().trim();
-    }
-    // Similarly, assume the 24h change is in an element with class "change24h" or fallback to ".change".
-    let changeText = $('.change24h').first().text().trim();
-    if (!changeText) {
-      changeText = $('.change').first().text().trim();
-    }
-
+    // IMPORTANT: Adjust these selectors according to the current Dexscreener website structure.
+    let price = $('span.price').first().text().trim();
+    let changeText = $('span.change').first().text().trim();
     debugLog("Scraped price:", price, "Change:", changeText);
     return {
       priceUsd: price,
@@ -113,8 +109,7 @@ async function fetchTokenDataFromWebsite(pairAddress) {
 }
 
 /**
- * Generate an aggregated message and inline keyboard for a chat based on its tracked tokens.
- * Uses HTML formatting.
+ * Generate an aggregated watchlist message and inline keyboard.
  * @param {string} chatId - The chat identifier.
  * @returns {object} - { text: string, inlineKeyboard: object }
  */
@@ -123,7 +118,6 @@ function generateAggregatedMessage(chatId) {
   let text = `<b>Hyprice Watchlist</b>\n`;
   text += `<i>The ultimate bot for Hyperliquid price tracking and personalized token watchlists.</i>\n\n`;
   text += `<b>Tracked Tokens:</b>\n\n`;
-
   let inlineKeyboard = [];
   for (const tokenSymbol in chatData.tokens) {
     const tokenData = chatData.tokens[tokenSymbol];
@@ -148,8 +142,7 @@ function generateAggregatedMessage(chatId) {
 }
 
 /**
- * Update all tracked tokens for a given chat by fetching their latest prices
- * and editing the pinned aggregated message.
+ * Update token prices for all tracked tokens in a chat.
  * @param {string} chatId - The chat identifier.
  */
 async function updateChatTokens(chatId) {
@@ -160,12 +153,11 @@ async function updateChatTokens(chatId) {
     const data = await fetchTokenDataFromWebsite(tokenInfo.pairAddress);
     if (data) {
       const newPrice = data.priceUsd || "N/A";
-      // For the 24h change, we expect data.priceChange to contain a percentage (e.g., "-10.5%" or "5.2%")
+      // Process the 24h change value:
       const changeStr = data.priceChange;
       let changeIndicator = "";
       if (changeStr) {
-        // Remove any extraneous characters (like a "%" if present) and parse the value.
-        const cleanStr = changeStr.replace("%", "");
+        const cleanStr = changeStr.replace("%", "").trim();
         const num = parseFloat(cleanStr);
         if (!isNaN(num)) {
           changeIndicator = (num >= 0 ? "🟢 +" : "🔴 ") + num.toFixed(2) + "%";
@@ -196,7 +188,7 @@ async function updateChatTokens(chatId) {
 }
 
 /**
- * Start the periodic update loop for a chat if not already started.
+ * Start the periodic update loop for a chat.
  * @param {string} chatId - The chat identifier.
  */
 function startUpdateLoop(chatId) {
@@ -209,10 +201,9 @@ function startUpdateLoop(chatId) {
   }
 }
 
-// Handle the /start command with HTML formatting.
+// Command: /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  // Initialize this chat with default tokens if not present
   if (!trackedChats[chatId]) {
     trackedChats[chatId] = {
       tokens: { ...defaultTokens },
@@ -233,7 +224,7 @@ bot.onText(/\/start/, (msg) => {
     .catch(err => console.error("Error sending /start message:", err.toString()));
 });
 
-// Handle the /help command to list the bot's capabilities.
+// Command: /help
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   const helpMessage = `
@@ -254,7 +245,7 @@ Simply add your tokens and use /help anytime to see this message again.
     .catch(err => console.error("Error sending /help message:", err.toString()));
 });
 
-// Handle the /watchlist command to resend the current watchlist without pinning.
+// Command: /watchlist
 bot.onText(/\/watchlist/, (msg) => {
   const chatId = msg.chat.id;
   if (!trackedChats[chatId]) {
@@ -274,7 +265,7 @@ bot.onText(/\/watchlist/, (msg) => {
     .catch(err => console.error("Error sending watchlist message:", err.toString()));
 });
 
-// Listen for callback queries (for removing tokens)
+// Callback query handler for removing tokens
 bot.on('callback_query', async (callbackQuery) => {
   const message = callbackQuery.message;
   const chatId = message.chat.id;
@@ -305,7 +296,7 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 });
 
-// Listen for messages that match the token tracking pattern.
+// Listen for messages matching the token tracking pattern
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   if (!msg.text) {
@@ -314,15 +305,12 @@ bot.on('message', async (msg) => {
   }
   const text = msg.text.trim();
   debugLog("Received message:", text);
-
-  // Regex to match a tracking message of the form: "$SYMBOL: pair_address"
   const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
   const match = text.match(pattern);
   if (match) {
     const tokenSymbol = match[1];
     const pairAddress = match[2];
     debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
-
     if (!trackedChats[chatId]) {
       trackedChats[chatId] = {
         tokens: { ...defaultTokens },
@@ -332,7 +320,6 @@ bot.on('message', async (msg) => {
     }
     trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastChange: "" };
     savePersistentData();
-
     if (!trackedChats[chatId].pinnedMessageId) {
       const aggregated = generateAggregatedMessage(chatId);
       try {
