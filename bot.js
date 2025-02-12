@@ -77,16 +77,16 @@ bot.on("polling_error", (error) => {
 });
 
 /**
- * Fetch token data from Dexscreener API (using the tokens endpoint for the hyperliquid chain).
- * @param {string} tokenAddress - The token contract address.
- * @returns {Promise<object|null>} - Returns the API response object (expected to contain a "pairs" array) or null.
+ * Fetch token data from Dexscreener API using the pairs endpoint for the Hyperliquid chain.
+ * @param {string} tokenAddress - The token (or pair) contract address.
+ * @returns {Promise<object|null>} - Returns the API response object (expected to contain a "pair" field) or null.
  */
 async function fetchTokenData(tokenAddress) {
   try {
-    debugLog("Fetching token data for", tokenAddress);
-    // Use the tokens endpoint; note the URL structure for tokens vs. pairs is different.
-    const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/hyperliquid/${tokenAddress}`);
-    debugLog("Received token data:", response.data);
+    debugLog("Fetching pair data for", tokenAddress);
+    // Use the pairs endpoint for Hyperliquid; this endpoint is expected to return an object with a 'pair' field.
+    const response = await axios.get(`https://api.dexscreener.com/latest/dex/pairs/hyperliquid/${tokenAddress}`);
+    debugLog("Received pair data:", response.data);
     return response.data;
   } catch (error) {
     console.error("Error fetching token data:", error.toString());
@@ -140,10 +140,11 @@ async function updateChatTokens(chatId) {
   for (const tokenSymbol in chatData.tokens) {
     const tokenInfo = chatData.tokens[tokenSymbol];
     const data = await fetchTokenData(tokenInfo.pairAddress);
-    if (data && data.pairs && data.pairs.length > 0) {
-      const pair = data.pairs[0];
+    // Expect the API response to include a singular 'pair' object.
+    if (data && data.pair) {
+      const pair = data.pair;
       const newPrice = pair.priceUsd || "N/A";
-      // Try to obtain the 24h price change from either priceChange or priceChangePct
+      // Try to obtain the 24h price change from either priceChange or priceChangePct.
       const changeStr = pair.priceChange || pair.priceChangePct;
       let changeIndicator = "";
       if (changeStr) {
