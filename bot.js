@@ -17,10 +17,19 @@ if (!token) {
 // Create a new Telegram bot instance using polling
 const bot = new TelegramBot(token, { polling: true });
 
-// Helper function for debug logging
+// Debug logging function
 function debugLog(...args) {
   console.log("[DEBUG]", ...args);
 }
+
+// Handle polling errors (e.g., 409 Conflict when another instance is running)
+bot.on("polling_error", (error) => {
+  console.error("Polling error:", error);
+  if (error && error.message && error.message.includes("409 Conflict")) {
+    console.error("409 Conflict detected. This instance will stop polling to avoid duplicate instances.");
+    bot.stopPolling();
+  }
+});
 
 /**
  * Fetch token data from DexScreener API.
@@ -59,36 +68,36 @@ bot.on('message', async (msg) => {
   const text = msg.text && msg.text.trim();
   debugLog("Received message:", text);
 
-  // Regex to match the token tracking format, e.g., "$HYPE: 0x..."
+  // Regex to match the tracking format: "$SYMBOL: pair_address"
   const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{40})$/i;
   const match = text.match(pairRegex);
-  
+
   if (match) {
     const tokenSymbol = match[1];
     const pairAddress = match[2];
     debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
-    
+
     // Fetch initial token data from DexScreener
     let tokenData = await fetchTokenData(pairAddress);
     if (!tokenData) {
       bot.sendMessage(chatId, "Failed to fetch token data. Please try again later.");
       return;
     }
-    
+
     // Assume the token data includes an array "pairs" with trading pair info.
     const pair = tokenData.pairs && tokenData.pairs[0];
     if (!pair) {
       bot.sendMessage(chatId, "No trading pairs found for this token.");
       return;
     }
-    
+
     const price = pair.priceUsd || "N/A";
     let messageText = `Tracking Token: $${tokenSymbol}\n` +
                       `Pair Address: ${pairAddress}\n` +
                       `Price: $${price}\n\n` +
                       `Last updated: ${new Date().toLocaleTimeString()}`;
-    
-    // Create an inline keyboard with a button linking to the DexScreener page (Hyperliquid themed)
+
+    // Create an inline keyboard with a button linking to the DexScreener page (Hyperliquid-themed)
     const inlineKeyboard = {
       inline_keyboard: [
         [
@@ -99,13 +108,12 @@ bot.on('message', async (msg) => {
         ]
       ]
     };
-    
+
     // Send the tracking message and attempt to pin it
     let sentMessage;
     try {
       sentMessage = await bot.sendMessage(chatId, messageText, { reply_markup: inlineKeyboard });
       debugLog("Sent tracking message, id:", sentMessage.message_id);
-      
       await bot.pinChatMessage(chatId, sentMessage.message_id);
       debugLog("Pinned tracking message");
     } catch (err) {
@@ -113,7 +121,7 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, "Error sending or pinning tracking message. Ensure the bot has permission to pin messages.");
       return;
     }
-    
+
     // Set up periodic updates every 15 seconds to refresh the pinned message
     setInterval(async () => {
       let updatedData = await fetchTokenData(pairAddress);
@@ -121,19 +129,19 @@ bot.on('message', async (msg) => {
         debugLog("Updated data is null");
         return;
       }
-      
+
       const updatedPair = updatedData.pairs && updatedData.pairs[0];
       if (!updatedPair) {
         debugLog("No updated pair data found");
         return;
       }
-      
+
       const updatedPrice = updatedPair.priceUsd || "N/A";
       let updatedText = `Tracking Token: $${tokenSymbol}\n` +
                         `Pair Address: ${pairAddress}\n` +
                         `Price: $${updatedPrice}\n\n` +
                         `Last updated: ${new Date().toLocaleTimeString()}`;
-      
+
       try {
         await bot.editMessageText(updatedText, { 
           chat_id: chatId, 
@@ -145,7 +153,7 @@ bot.on('message', async (msg) => {
         console.error("Error updating pinned message:", err.toString());
       }
     }, 15000); // 15 seconds interval
-    
+
   } else {
     debugLog("Message did not match tracking pattern");
   }
