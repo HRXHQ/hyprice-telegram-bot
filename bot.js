@@ -68,8 +68,8 @@ bot.on('message', async (msg) => {
   const text = msg.text && msg.text.trim();
   debugLog("Received message:", text);
 
-  // Regex to match the tracking format: "$SYMBOL: pair_address"
-  const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{40})$/i;
+  // Updated regex: Accepts addresses with 32 to 40 hexadecimal characters after "0x"
+  const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
   const match = text.match(pairRegex);
 
   if (match) {
