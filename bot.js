@@ -59,9 +59,9 @@ async function fetchTokenData(pairAddress) {
  */
 function generateAggregatedMessage(chatId) {
   const chatData = trackedChats[chatId];
-  // Header with a Hyperliquid-themed title and an example image link (clickable)
-  let text = `<b>💎 Hyperliquid Token Tracker</b>\n`;
-  text += `<i>View our <a href="https://pbs.twimg.com/profile_images/1646991609416806408/vKLEZxhh_400x400.png">brand</a> vibe</i>\n\n`;
+  // Header with the new title and description.
+  let text = `<b>Hyprice Watchlist</b>\n`;
+  text += `<i>The ultimate bot for Hyperliquid price tracking and personalized token watchlists.</i>\n\n`;
   text += `<b>Tracked Tokens:</b>\n\n`;
 
   let inlineKeyboard = [];
