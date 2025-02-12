@@ -190,7 +190,7 @@ function startUpdateLoop(chatId) {
 // Handle the /start command with HTML formatting.
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  // If this chat is not already in trackedChats, initialize with default tokens.
+  // Initialize this chat with default tokens if not present
   if (!trackedChats[chatId]) {
     trackedChats[chatId] = {
       tokens: { ...defaultTokens },
@@ -230,6 +230,27 @@ Simply add your tokens and use /help anytime to see this message again.
   bot.sendMessage(chatId, helpMessage, { parse_mode: "HTML" })
     .then(() => debugLog("Sent help message"))
     .catch(err => console.error("Error sending /help message:", err.toString()));
+});
+
+// Handle the /watchlist command to resend the current watchlist without pinning.
+bot.onText(/\/watchlist/, (msg) => {
+  const chatId = msg.chat.id;
+  // Initialize this chat with default tokens if not present
+  if (!trackedChats[chatId]) {
+    trackedChats[chatId] = {
+      tokens: { ...defaultTokens },
+      pinnedMessageId: null,
+      intervalId: null
+    };
+    savePersistentData();
+  }
+  const aggregated = generateAggregatedMessage(chatId);
+  bot.sendMessage(chatId, aggregated.text, {
+    reply_markup: aggregated.inlineKeyboard,
+    parse_mode: "HTML"
+  })
+    .then(() => debugLog("Sent watchlist message for /watchlist command"))
+    .catch(err => console.error("Error sending watchlist message:", err.toString()));
 });
 
 // Listen for callback queries (for removing tokens)
@@ -274,7 +295,7 @@ bot.on('message', async (msg) => {
   const text = msg.text.trim();
   debugLog("Received message:", text);
 
-  // Regex to match a tracking message: "$SYMBOL: pair_address"
+  // Regex to match a tracking message of the form: "$SYMBOL: pair_address"
   const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
   const match = text.match(pattern);
   if (match) {
