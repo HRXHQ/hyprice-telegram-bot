@@ -21,15 +21,14 @@ const bot = new TelegramBot(token, { polling: true });
 // Define the persistent data file
 const DATA_FILE = 'trackedChats.json';
 
-// Global object for storing watchlists by chat ID
+// Global object for storing watchlists by chat ID.
 // Structure: { [chatId]: { tokens: { SYMBOL: { pairAddress, lastPrice, lastChange } } } }
 let trackedChats = {};
 
 // Load persistent data if available
 if (fs.existsSync(DATA_FILE)) {
   try {
-    const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    trackedChats = data;
+    trackedChats = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     console.log("[DEBUG] Persistent data loaded.");
   } catch (err) {
     console.error("Error reading persistent data:", err);
@@ -115,7 +114,7 @@ async function updateChatTokens(chatId) {
   return updated;
 }
 
-// Send the aggregated watchlist message (updates on demand, not pinned)
+// Send the aggregated watchlist message (without pinning)
 async function sendWatchlist(chatId) {
   await updateChatTokens(chatId);
   const aggregated = generateAggregatedMessage(chatId);
@@ -134,7 +133,7 @@ bot.onText(/\/start/, (msg) => {
   }
   const welcome = `<b>Welcome to the Hyprice Telegram Bot!</b>\n\n` +
                   `To track a token, send a message in the format:\n` +
-                  `<code>$SYMBOL: pair_address</code>\n\n` +
+                  `<code>$SYMBOL: token_address</code>\n\n` +
                   `Example:\n` +
                   `<code>$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c</code>\n\n` +
                   `Use /help to see what I can do.`;
@@ -145,7 +144,7 @@ bot.onText(/\/start/, (msg) => {
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   const helpMsg = `<b>Hyprice Bot - What I Can Do:</b>\n\n` +
-                  `• <b>Track Tokens:</b> Send <code>$SYMBOL: pair_address</code> to add a token to your watchlist.\n` +
+                  `• <b>Track Tokens:</b> Send <code>$SYMBOL: token_address</code> to add a token to your watchlist.\n` +
                   `• <b>View Watchlist:</b> Use /watchlist to see the latest prices and 24h changes.\n` +
                   `• <b>Remove Tokens:</b> Press the "❌ Remove" button to delete a token from your watchlist.\n\n` +
                   `Default tokens are loaded automatically on /start.`;
@@ -190,9 +189,9 @@ bot.on('message', async (msg) => {
   const match = text.match(pattern);
   if (match) {
     const symbol = match[1];
-    const pairAddress = match[2];
+    const tokenAddress = match[2];
     trackedChats[chatId] = trackedChats[chatId] || { tokens: {} };
-    trackedChats[chatId].tokens[symbol] = { pairAddress, lastPrice: null, lastChange: "" };
+    trackedChats[chatId].tokens[symbol] = { pairAddress: tokenAddress, lastPrice: null, lastChange: "" };
     savePersistentData();
     await sendWatchlist(chatId);
   }
