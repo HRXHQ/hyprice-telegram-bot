@@ -1,53 +1,37 @@
-/*
- * hyprice.js
- *
- * This module contains the core business logic for the HyPrice project.
- * It is adapted from your Chrome extension code. In this example, the function
- * processes an input string to extract numeric price values and calculates
- * summary statistics (total, average, minimum, and maximum).
- *
- * You can modify, extend, or replace this logic with the actual functionality
- * from your extension as needed.
- */
+// hyprice.js
 
-/**
- * Processes the given input text to extract price values and calculate summary statistics.
- *
- * @param {string} input - The text input that should contain price information.
- * @returns {string} - A response string with the calculated results or an error message.
- */
-function processHyprice(input) {
-  // Basic input validation
-  if (!input || typeof input !== 'string') {
-    return "Invalid input. Please send some text containing price information.";
+const cheerio = require('cheerio');
+
+async function getTokenData(pairAddress) {
+  const url = `https://dexscreener.com/hyperliquid/${pairAddress}`;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    // Attempt to extract the USD price and 24h change using data-testid attributes.
+    let price = $('span[data-testid="PairPrice"]').first().text().trim();
+    if (!price) {
+      // Fallback selector if needed
+      price = $('span.price').first().text().trim();
+    }
+    let priceChange = $('span[data-testid="PairPriceChange"]').first().text().trim();
+    if (!priceChange) {
+      priceChange = $('span.change').first().text().trim();
+    }
+    return { priceUsd: price, priceChange: priceChange };
+  } catch (err) {
+    console.error("Error in getTokenData:", err);
+    return null;
   }
-
-  // Regular expression to match numbers (prices), e.g., "19.99", "100", etc.
-  const priceRegex = /(\d+(?:\.\d+)?)/g;
-  const matches = input.match(priceRegex);
-
-  if (!matches || matches.length === 0) {
-    return "No price information found in the input.";
-  }
-
-  // Convert matched strings to numbers
-  const prices = matches.map(str => parseFloat(str));
-
-  // Calculate total, average, minimum, and maximum
-  const total = prices.reduce((acc, val) => acc + val, 0);
-  const average = total / prices.length;
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-
-  // Prepare a response message
-  let response = `Prices detected: ${prices.join(", ")}.\n`;
-  response += `Total: ${total.toFixed(2)}\n`;
-  response += `Average: ${average.toFixed(2)}\n`;
-  response += `Minimum: ${min.toFixed(2)}\n`;
-  response += `Maximum: ${max.toFixed(2)}`;
-
-  return response;
 }
 
-// Export the function so it can be used in bot.js
-module.exports = { processHyprice };
+module.exports = { getTokenData };
