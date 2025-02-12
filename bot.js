@@ -68,10 +68,10 @@ function generateAggregatedMessage(chatId) {
   for (const tokenSymbol in chatData.tokens) {
     const tokenData = chatData.tokens[tokenSymbol];
     text += `<b>$${tokenSymbol}</b>: <code>${tokenData.pairAddress}</code>\n`;
-    text += `Price: <b>$${tokenData.lastPrice || "N/A"}</b> &mdash; Last updated: <i>${tokenData.lastUpdated || "-"}</i>\n\n`;
+    text += `Price: <b>$${tokenData.lastPrice || "N/A"}</b> - 24h Change: <b>${tokenData.lastChange || "N/A"}</b>\n\n`;
     inlineKeyboard.push([
       {
-        text: `🔷 View $${tokenSymbol}`,
+        text: `📈 View $${tokenSymbol}`,
         url: `https://dexscreener.com/hyperliquid/${tokenData.pairAddress}`
       }
     ]);
@@ -91,9 +91,23 @@ async function updateChatTokens(chatId) {
     const tokenInfo = chatData.tokens[tokenSymbol];
     const data = await fetchTokenData(tokenInfo.pairAddress);
     if (data && data.pair) {
+      // Get the new price and 24h change
       const newPrice = data.pair.priceUsd || "N/A";
+      // Assume the 24h price change is available in data.pair.priceChange
+      const changeStr = data.pair.priceChange;
+      let changeIndicator = "N/A";
+      if (changeStr) {
+        const num = parseFloat(changeStr);
+        if (!isNaN(num)) {
+          if (num >= 0) {
+            changeIndicator = "🟢 +" + num.toFixed(2) + "%";
+          } else {
+            changeIndicator = "🔴 " + num.toFixed(2) + "%";
+          }
+        }
+      }
       tokenInfo.lastPrice = newPrice;
-      tokenInfo.lastUpdated = new Date().toLocaleTimeString();
+      tokenInfo.lastChange = changeIndicator;
       updated = true;
     } else {
       debugLog(`No updated data for token ${tokenSymbol}`);
@@ -152,7 +166,7 @@ bot.onText(/\/help/, (msg) => {
 
 • <b>Track Tokens:</b> Send me a message in the format <code>$SYMBOL: pair_address</code> and I will track the token's price from DexScreener (Hyperliquid chain).
 
-• <b>Aggregated Updates:</b> All tokens you track in a chat are combined into one pinned message that updates every 15 seconds with the latest prices.
+• <b>Aggregated Updates:</b> All tokens you track in a chat are combined into one pinned message that updates every 15 seconds with the latest prices and 24h changes.
 
 • <b>View Details:</b> Each token in the pinned message has a button to view more details on DexScreener.
 
@@ -190,7 +204,7 @@ bot.on('message', async (msg) => {
       trackedChats[chatId] = { pinnedMessageId: null, tokens: {}, intervalId: null };
     }
     // Add or update the token in the chat's tracked tokens list
-    trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastUpdated: null };
+    trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastChange: null };
 
     // If no aggregated (pinned) message exists yet for this chat, send one and pin it.
     if (!trackedChats[chatId].pinnedMessageId) {
