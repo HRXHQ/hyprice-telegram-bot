@@ -32,18 +32,19 @@ bot.on("polling_error", (error) => {
 });
 
 /**
- * Fetch token data from DexScreener API.
+ * Fetch pair data from DexScreener API for the hyperliquid chain.
  * @param {string} pairAddress - The token pair contract address.
  * @returns {Promise<object|null>} - The JSON response from DexScreener or null on error.
  */
 async function fetchTokenData(pairAddress) {
   try {
-    debugLog("Fetching token data for", pairAddress);
-    const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${pairAddress}`);
-    debugLog("Received token data:", response.data);
+    debugLog("Fetching pair data for", pairAddress);
+    // Use the pairs endpoint for hyperliquid chain
+    const response = await axios.get(`https://api.dexscreener.com/latest/dex/pairs/hyperliquid/${pairAddress}`);
+    debugLog("Received pair data:", response.data);
     return response.data;
   } catch (error) {
-    console.error("Error fetching token data:", error.toString());
+    console.error("Error fetching pair data:", error.toString());
     return null;
   }
 }
@@ -51,7 +52,7 @@ async function fetchTokenData(pairAddress) {
 // Handle the /start command
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const welcomeMessage = 
+  const welcomeMessage =
     "Welcome to the Hyprice Telegram Bot!\n\n" +
     "To track a token, send a message in the following format:\n" +
     "$SYMBOL: pair_address\n\n" +
@@ -68,7 +69,7 @@ bot.on('message', async (msg) => {
   const text = msg.text && msg.text.trim();
   debugLog("Received message:", text);
 
-  // Updated regex: Accepts addresses with 32 to 40 hexadecimal characters after "0x"
+  // Updated regex: Accept addresses with 32 to 40 hexadecimal characters after "0x"
   const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
   const match = text.match(pairRegex);
 
@@ -77,23 +78,21 @@ bot.on('message', async (msg) => {
     const pairAddress = match[2];
     debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
 
-    // Fetch initial token data from DexScreener
+    // Fetch initial pair data from DexScreener (using the hyperliquid pairs endpoint)
     let tokenData = await fetchTokenData(pairAddress);
     if (!tokenData) {
       bot.sendMessage(chatId, "Failed to fetch token data. Please try again later.");
       return;
     }
 
-    // Check if tokenData contains trading pairs
-    if (!tokenData.pairs || tokenData.pairs.length === 0) {
-      debugLog("tokenData received but no trading pairs found:", tokenData);
+    // Check if tokenData contains a 'pair' field
+    if (!tokenData.pair) {
+      debugLog("No trading pair found in response:", tokenData);
       bot.sendMessage(chatId, "No trading pairs found for this token.");
       return;
     }
 
-    // Assume the token data includes an array "pairs" with trading pair info.
-    const pair = tokenData.pairs[0];
-
+    const pair = tokenData.pair;
     const price = pair.priceUsd || "N/A";
     let messageText = `Tracking Token: $${tokenSymbol}\n` +
                       `Pair Address: ${pairAddress}\n` +
@@ -133,12 +132,12 @@ bot.on('message', async (msg) => {
         return;
       }
 
-      if (!updatedData.pairs || updatedData.pairs.length === 0) {
-        debugLog("No updated pair data found. Updated tokenData:", updatedData);
+      if (!updatedData.pair) {
+        debugLog("No updated trading pair found. Updated data:", updatedData);
         return;
       }
 
-      const updatedPair = updatedData.pairs[0];
+      const updatedPair = updatedData.pair;
       const updatedPrice = updatedPair.priceUsd || "N/A";
       let updatedText = `Tracking Token: $${tokenSymbol}\n` +
                         `Pair Address: ${pairAddress}\n` +
@@ -146,10 +145,10 @@ bot.on('message', async (msg) => {
                         `Last updated: ${new Date().toLocaleTimeString()}`;
 
       try {
-        await bot.editMessageText(updatedText, { 
-          chat_id: chatId, 
-          message_id: sentMessage.message_id, 
-          reply_markup: inlineKeyboard 
+        await bot.editMessageText(updatedText, {
+          chat_id: chatId,
+          message_id: sentMessage.message_id,
+          reply_markup: inlineKeyboard
         });
         debugLog("Updated tracking message with new price:", updatedPrice);
       } catch (err) {
