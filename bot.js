@@ -67,7 +67,7 @@ function debugLog(...args) {
   console.log("[DEBUG]", ...args);
 }
 
-// Handle polling errors
+// Handle polling errors (e.g., 409 Conflict when another instance is running)
 bot.on("polling_error", (error) => {
   console.error("Polling error:", error);
   if (error && error.message && error.message.includes("409 Conflict")) {
@@ -78,7 +78,7 @@ bot.on("polling_error", (error) => {
 
 /**
  * Fetch token data by scraping the Dexscreener website.
- * @param {string} pairAddress - The token pair contract address.
+ * @param {string} pairAddress - The token (or pair) contract address.
  * @returns {Promise<object|null>} - Returns an object with { priceUsd, priceChange } or null on error.
  */
 async function fetchTokenDataFromWebsite(pairAddress) {
@@ -94,9 +94,20 @@ async function fetchTokenDataFromWebsite(pairAddress) {
     });
     const html = response.data;
     const $ = cheerio.load(html);
-    // IMPORTANT: Adjust these selectors according to the current Dexscreener website structure.
-    let price = $('span.price').first().text().trim();
-    let changeText = $('span.change').first().text().trim();
+
+    // Use selectors based on the Dexscreener layout.
+    // For example, the current USD price might be inside:
+    let price = $('div.priceContainer span.value').first().text().trim();
+    // If not found, try a fallback:
+    if (!price) {
+      price = $('span.price').first().text().trim();
+    }
+    // Similarly, for the 24h change, try:
+    let changeText = $('div.priceContainer span.change').first().text().trim();
+    if (!changeText) {
+      changeText = $('span.change').first().text().trim();
+    }
+
     debugLog("Scraped price:", price, "Change:", changeText);
     return {
       priceUsd: price,
@@ -110,6 +121,7 @@ async function fetchTokenDataFromWebsite(pairAddress) {
 
 /**
  * Generate an aggregated watchlist message and inline keyboard.
+ * Uses HTML formatting.
  * @param {string} chatId - The chat identifier.
  * @returns {object} - { text: string, inlineKeyboard: object }
  */
@@ -153,7 +165,6 @@ async function updateChatTokens(chatId) {
     const data = await fetchTokenDataFromWebsite(tokenInfo.pairAddress);
     if (data) {
       const newPrice = data.priceUsd || "N/A";
-      // Process the 24h change value:
       const changeStr = data.priceChange;
       let changeIndicator = "";
       if (changeStr) {
@@ -296,7 +307,7 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 });
 
-// Listen for messages matching the token tracking pattern
+// Listen for messages matching the token tracking pattern.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   if (!msg.text) {
