@@ -137,10 +137,32 @@ bot.onText(/\/start/, (msg) => {
     `To track a token, send a message in the following format:\n` +
     `<code>$SYMBOL: pair_address</code>\n\n` +
     `Example:\n` +
-    `<code>$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c</code>`;
+    `<code>$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c</code>\n\n` +
+    `Use <b>/help</b> to see what I can do.`;
   bot.sendMessage(chatId, welcomeMessage, { parse_mode: "HTML" })
     .then(() => debugLog("Sent welcome message"))
     .catch(err => console.error("Error sending /start message:", err.toString()));
+});
+
+// Handle the /help command to list the bot's capabilities.
+bot.onText(/\/help/, (msg) => {
+  const chatId = msg.chat.id;
+  const helpMessage = `
+<b>Hyprice Bot - What I Can Do:</b>
+
+• <b>Track Tokens:</b> Send me a message in the format <code>$SYMBOL: pair_address</code> and I will track the token's price from DexScreener (Hyperliquid chain).
+
+• <b>Aggregated Updates:</b> All tokens you track in a chat are combined into one pinned message that updates every 15 seconds with the latest prices.
+
+• <b>View Details:</b> Each token in the pinned message has a button to view more details on DexScreener.
+
+• <b>User-Friendly Interface:</b> I use HTML formatting to display a clean and professional summary of all tracked tokens.
+
+Simply add your tokens and use /help anytime to see this message again.
+  `;
+  bot.sendMessage(chatId, helpMessage, { parse_mode: "HTML" })
+    .then(() => debugLog("Sent help message"))
+    .catch(err => console.error("Error sending /help message:", err.toString()));
 });
 
 // Listen for messages that match the token tracking pattern.
