@@ -141,8 +141,8 @@ async function updateChatTokens(chatId) {
     const data = await fetchTokenData(tokenInfo.pairAddress);
     if (data && data.pair) {
       const newPrice = data.pair.priceUsd || "N/A";
-      // Assume the 24h change is provided as data.pair.priceChange
-      const changeStr = data.pair.priceChange;
+      // Try to obtain 24h price change from either priceChange or priceChangePct
+      const changeStr = data.pair.priceChange || data.pair.priceChangePct;
       let changeIndicator = "";
       if (changeStr) {
         const num = parseFloat(changeStr);
@@ -153,6 +153,7 @@ async function updateChatTokens(chatId) {
       tokenInfo.lastPrice = newPrice;
       tokenInfo.lastChange = changeIndicator;
       updated = true;
+      debugLog(`Updated ${tokenSymbol}: Price = $${newPrice}, Change = ${changeIndicator}`);
     } else {
       debugLog(`No updated data for token ${tokenSymbol}`);
     }
