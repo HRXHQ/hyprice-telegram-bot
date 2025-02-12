@@ -17,6 +17,18 @@ if (!token) {
 // Create a new Telegram bot instance using polling
 const bot = new TelegramBot(token, { polling: true });
 
+// Global object to store tracked tokens per chat.
+// Structure: {
+//   [chatId]: {
+//     pinnedMessageId: number|null,
+//     tokens: {
+//       [tokenSymbol]: { pairAddress: string, lastPrice: string|null, lastUpdated: string|null }
+//     },
+//     intervalId: NodeJS.Timer|null
+//   }
+// }
+const trackedChats = {};
+
 // Debug logging function
 function debugLog(...args) {
   console.log("[DEBUG]", ...args);
@@ -32,20 +44,90 @@ bot.on("polling_error", (error) => {
 });
 
 /**
- * Fetch pair data from DexScreener API for the hyperliquid chain.
+ * Fetch pair data from DexScreener API (Hyperliquid endpoint).
  * @param {string} pairAddress - The token pair contract address.
- * @returns {Promise<object|null>} - The JSON response from DexScreener or null on error.
+ * @returns {Promise<object|null>} - Returns the API response object (expected to contain a "pair" field) or null.
  */
 async function fetchTokenData(pairAddress) {
   try {
     debugLog("Fetching pair data for", pairAddress);
-    // Use the pairs endpoint for hyperliquid chain
     const response = await axios.get(`https://api.dexscreener.com/latest/dex/pairs/hyperliquid/${pairAddress}`);
     debugLog("Received pair data:", response.data);
     return response.data;
   } catch (error) {
     console.error("Error fetching pair data:", error.toString());
     return null;
+  }
+}
+
+/**
+ * Generate an aggregated message and inline keyboard for a chat based on its tracked tokens.
+ * @param {string} chatId - The chat identifier.
+ * @returns {object} - { text: string, inlineKeyboard: object }
+ */
+function generateAggregatedMessage(chatId) {
+  const chatData = trackedChats[chatId];
+  let text = "Tracked Tokens:\n\n";
+  let inlineKeyboard = [];
+  for (const tokenSymbol in chatData.tokens) {
+    const tokenData = chatData.tokens[tokenSymbol];
+    text += `$${tokenSymbol}: ${tokenData.pairAddress}\nPrice: $${tokenData.lastPrice || "N/A"} (Last updated: ${tokenData.lastUpdated || "-"})\n\n`;
+    inlineKeyboard.push([
+      {
+        text: `🔷 View $${tokenSymbol}`,
+        url: `https://dexscreener.com/hyperliquid/${tokenData.pairAddress}`
+      }
+    ]);
+  }
+  return { text, inlineKeyboard: { inline_keyboard: inlineKeyboard } };
+}
+
+/**
+ * Update all tracked tokens for a given chat by fetching their latest prices
+ * and editing the pinned aggregated message.
+ * @param {string} chatId - The chat identifier.
+ */
+async function updateChatTokens(chatId) {
+  const chatData = trackedChats[chatId];
+  let updated = false;
+  for (const tokenSymbol in chatData.tokens) {
+    const tokenInfo = chatData.tokens[tokenSymbol];
+    const data = await fetchTokenData(tokenInfo.pairAddress);
+    if (data && data.pair) {
+      const newPrice = data.pair.priceUsd || "N/A";
+      tokenInfo.lastPrice = newPrice;
+      tokenInfo.lastUpdated = new Date().toLocaleTimeString();
+      updated = true;
+    } else {
+      debugLog(`No updated data for token ${tokenSymbol}`);
+    }
+  }
+  if (updated && chatData.pinnedMessageId) {
+    const aggregated = generateAggregatedMessage(chatId);
+    try {
+      await bot.editMessageText(aggregated.text, {
+        chat_id: chatId,
+        message_id: chatData.pinnedMessageId,
+        reply_markup: aggregated.inlineKeyboard
+      });
+      debugLog(`Updated aggregated message for chat ${chatId}`);
+    } catch (err) {
+      console.error("Error updating aggregated message:", err.toString());
+    }
+  }
+}
+
+/**
+ * Start the periodic update loop for a chat if not already started.
+ * @param {string} chatId - The chat identifier.
+ */
+function startUpdateLoop(chatId) {
+  const chatData = trackedChats[chatId];
+  if (!chatData.intervalId) {
+    chatData.intervalId = setInterval(() => {
+      updateChatTokens(chatId);
+    }, 15000); // update every 15 seconds
+    debugLog(`Started update loop for chat ${chatId}`);
   }
 }
 
@@ -63,99 +145,58 @@ bot.onText(/\/start/, (msg) => {
     .catch(err => console.error("Error sending /start message:", err.toString()));
 });
 
-// Listen for messages to add token tracking
+// Listen for messages that match the token tracking pattern.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text && msg.text.trim();
   debugLog("Received message:", text);
 
-  // Updated regex: Accept addresses with 32 to 40 hexadecimal characters after "0x"
-  const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
-  const match = text.match(pairRegex);
-
+  // Regex to match a tracking message of the form: "$SYMBOL: pair_address"
+  // Accepts addresses with 32 to 40 hexadecimal characters after "0x"
+  const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
+  const match = text.match(pattern);
   if (match) {
     const tokenSymbol = match[1];
     const pairAddress = match[2];
     debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
 
-    // Fetch initial pair data from DexScreener (using the hyperliquid pairs endpoint)
-    let tokenData = await fetchTokenData(pairAddress);
-    if (!tokenData) {
-      bot.sendMessage(chatId, "Failed to fetch token data. Please try again later.");
-      return;
+    // Initialize tracking for this chat if it doesn't exist
+    if (!trackedChats[chatId]) {
+      trackedChats[chatId] = { pinnedMessageId: null, tokens: {}, intervalId: null };
     }
+    // Add or update the token in the chat's tracked tokens list
+    trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastUpdated: null };
 
-    // Check if tokenData contains a 'pair' field
-    if (!tokenData.pair) {
-      debugLog("No trading pair found in response:", tokenData);
-      bot.sendMessage(chatId, "No trading pairs found for this token.");
-      return;
-    }
-
-    const pair = tokenData.pair;
-    const price = pair.priceUsd || "N/A";
-    let messageText = `Tracking Token: $${tokenSymbol}\n` +
-                      `Pair Address: ${pairAddress}\n` +
-                      `Price: $${price}\n\n` +
-                      `Last updated: ${new Date().toLocaleTimeString()}`;
-
-    // Create an inline keyboard with a button linking to the DexScreener page (Hyperliquid-themed)
-    const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          {
-            text: "🔷 View on Hyperliquid",
-            url: `https://dexscreener.com/hyperliquid/${pairAddress}`
-          }
-        ]
-      ]
-    };
-
-    // Send the tracking message and attempt to pin it
-    let sentMessage;
-    try {
-      sentMessage = await bot.sendMessage(chatId, messageText, { reply_markup: inlineKeyboard });
-      debugLog("Sent tracking message, id:", sentMessage.message_id);
-      await bot.pinChatMessage(chatId, sentMessage.message_id);
-      debugLog("Pinned tracking message");
-    } catch (err) {
-      console.error("Error sending or pinning message:", err.toString());
-      bot.sendMessage(chatId, "Error sending or pinning tracking message. Ensure the bot has permission to pin messages.");
-      return;
-    }
-
-    // Set up periodic updates every 15 seconds to refresh the pinned message
-    setInterval(async () => {
-      let updatedData = await fetchTokenData(pairAddress);
-      if (!updatedData) {
-        debugLog("Updated data is null");
-        return;
-      }
-
-      if (!updatedData.pair) {
-        debugLog("No updated trading pair found. Updated data:", updatedData);
-        return;
-      }
-
-      const updatedPair = updatedData.pair;
-      const updatedPrice = updatedPair.priceUsd || "N/A";
-      let updatedText = `Tracking Token: $${tokenSymbol}\n` +
-                        `Pair Address: ${pairAddress}\n` +
-                        `Price: $${updatedPrice}\n\n` +
-                        `Last updated: ${new Date().toLocaleTimeString()}`;
-
+    // If no aggregated (pinned) message exists yet for this chat, send one and pin it.
+    if (!trackedChats[chatId].pinnedMessageId) {
+      const aggregated = generateAggregatedMessage(chatId);
       try {
-        await bot.editMessageText(updatedText, {
-          chat_id: chatId,
-          message_id: sentMessage.message_id,
-          reply_markup: inlineKeyboard
-        });
-        debugLog("Updated tracking message with new price:", updatedPrice);
+        const sentMsg = await bot.sendMessage(chatId, aggregated.text, { reply_markup: aggregated.inlineKeyboard });
+        trackedChats[chatId].pinnedMessageId = sentMsg.message_id;
+        await bot.pinChatMessage(chatId, sentMsg.message_id);
+        debugLog("Pinned aggregated tracking message for chat", chatId);
       } catch (err) {
-        console.error("Error updating pinned message:", err.toString());
+        console.error("Error sending or pinning aggregated message:", err.toString());
+        bot.sendMessage(chatId, "Error sending or pinning tracking message. Ensure the bot has permission to pin messages.");
+        return;
       }
-    }, 15000); // 15 seconds interval
+    } else {
+      // If an aggregated message already exists, update it immediately.
+      const aggregated = generateAggregatedMessage(chatId);
+      try {
+        await bot.editMessageText(aggregated.text, {
+          chat_id: chatId,
+          message_id: trackedChats[chatId].pinnedMessageId,
+          reply_markup: aggregated.inlineKeyboard
+        });
+        debugLog("Updated aggregated tracking message for chat", chatId);
+      } catch (err) {
+        console.error("Error updating aggregated message:", err.toString());
+      }
+    }
 
+    // Start (or ensure) the update loop for this chat is running.
+    startUpdateLoop(chatId);
   } else {
     debugLog("Message did not match tracking pattern");
   }
