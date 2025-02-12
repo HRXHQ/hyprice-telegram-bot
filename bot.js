@@ -18,15 +18,6 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 
 // Global object to store tracked tokens per chat.
-// Structure: {
-//   [chatId]: {
-//     pinnedMessageId: number|null,
-//     tokens: {
-//       [tokenSymbol]: { pairAddress: string, lastPrice: string|null, lastUpdated: string|null }
-//     },
-//     intervalId: NodeJS.Timer|null
-//   }
-// }
 const trackedChats = {};
 
 // Debug logging function
@@ -148,7 +139,12 @@ bot.onText(/\/start/, (msg) => {
 // Listen for messages that match the token tracking pattern.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-  const text = msg.text && msg.text.trim();
+  // Check if msg.text exists
+  if (!msg.text) {
+    debugLog("No text in message, skipping.");
+    return;
+  }
+  const text = msg.text.trim();
   debugLog("Received message:", text);
 
   // Regex to match a tracking message of the form: "$SYMBOL: pair_address"
