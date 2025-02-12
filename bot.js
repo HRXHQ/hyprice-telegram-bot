@@ -6,6 +6,7 @@ require('dotenv').config();
 // Import necessary modules
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const fs = require('fs');
 
 // Define the persistent data file
@@ -28,7 +29,6 @@ let trackedChats = {};
 if (fs.existsSync(DATA_FILE)) {
   try {
     const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    // For each chat in persistent data, set runtime fields to null
     for (const chatId in data) {
       trackedChats[chatId] = {
         tokens: data[chatId],
@@ -77,19 +77,37 @@ bot.on("polling_error", (error) => {
 });
 
 /**
- * Fetch token data from Dexscreener API using the pairs endpoint for the Hyperliquid chain.
- * @param {string} tokenAddress - The token (or pair) contract address.
- * @returns {Promise<object|null>} - Returns the API response object (expected to contain a "pair" field) or null.
+ * Fetch token data by scraping the Dexscreener website.
+ * @param {string} pairAddress - The token (or pair) contract address.
+ * @returns {Promise<object|null>} - Returns an object with priceUsd and priceChange, or null on error.
  */
-async function fetchTokenData(tokenAddress) {
+async function fetchTokenDataFromWebsite(pairAddress) {
   try {
-    debugLog("Fetching pair data for", tokenAddress);
-    // Use the pairs endpoint for Hyperliquid; this endpoint is expected to return an object with a 'pair' field.
-    const response = await axios.get(`https://api.dexscreener.com/latest/dex/pairs/hyperliquid/${tokenAddress}`);
-    debugLog("Received pair data:", response.data);
-    return response.data;
+    debugLog("Fetching webpage for", pairAddress);
+    const url = `https://dexscreener.com/hyperliquid/${pairAddress}`;
+    const response = await axios.get(url);
+    const html = response.data;
+    const $ = cheerio.load(html);
+
+    // Adjust the selectors below as necessary based on the website's HTML structure.
+    // For example, assume the current price is in an element with class "priceUsd" or fallback to ".price".
+    let price = $('.priceUsd').first().text().trim();
+    if (!price) {
+      price = $('.price').first().text().trim();
+    }
+    // Similarly, assume the 24h change is in an element with class "change24h" or fallback to ".change".
+    let changeText = $('.change24h').first().text().trim();
+    if (!changeText) {
+      changeText = $('.change').first().text().trim();
+    }
+
+    debugLog("Scraped price:", price, "Change:", changeText);
+    return {
+      priceUsd: price,
+      priceChange: changeText
+    };
   } catch (error) {
-    console.error("Error fetching token data:", error.toString());
+    console.error("Error fetching token data from website:", error.toString());
     return null;
   }
 }
@@ -139,16 +157,16 @@ async function updateChatTokens(chatId) {
   let updated = false;
   for (const tokenSymbol in chatData.tokens) {
     const tokenInfo = chatData.tokens[tokenSymbol];
-    const data = await fetchTokenData(tokenInfo.pairAddress);
-    // Expect the API response to include a singular 'pair' object.
-    if (data && data.pair) {
-      const pair = data.pair;
-      const newPrice = pair.priceUsd || "N/A";
-      // Try to obtain the 24h price change from either priceChange or priceChangePct.
-      const changeStr = pair.priceChange || pair.priceChangePct;
+    const data = await fetchTokenDataFromWebsite(tokenInfo.pairAddress);
+    if (data) {
+      const newPrice = data.priceUsd || "N/A";
+      // For the 24h change, we expect data.priceChange to contain a percentage (e.g., "-10.5%" or "5.2%")
+      const changeStr = data.priceChange;
       let changeIndicator = "";
       if (changeStr) {
-        const num = parseFloat(changeStr);
+        // Remove any extraneous characters (like a "%" if present) and parse the value.
+        const cleanStr = changeStr.replace("%", "");
+        const num = parseFloat(cleanStr);
         if (!isNaN(num)) {
           changeIndicator = (num >= 0 ? "🟢 +" : "🔴 ") + num.toFixed(2) + "%";
         }
@@ -239,7 +257,6 @@ Simply add your tokens and use /help anytime to see this message again.
 // Handle the /watchlist command to resend the current watchlist without pinning.
 bot.onText(/\/watchlist/, (msg) => {
   const chatId = msg.chat.id;
-  // Initialize this chat with default tokens if not present
   if (!trackedChats[chatId]) {
     trackedChats[chatId] = {
       tokens: { ...defaultTokens },
@@ -267,7 +284,6 @@ bot.on('callback_query', async (callbackQuery) => {
     if (trackedChats[chatId] && trackedChats[chatId].tokens[tokenSymbol]) {
       delete trackedChats[chatId].tokens[tokenSymbol];
       savePersistentData();
-      // Update the aggregated message
       const aggregated = generateAggregatedMessage(chatId);
       try {
         await bot.editMessageText(aggregated.text, {
@@ -307,7 +323,6 @@ bot.on('message', async (msg) => {
     const pairAddress = match[2];
     debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
 
-    // Initialize tracking for this chat if it doesn't exist (should be set by /start already)
     if (!trackedChats[chatId]) {
       trackedChats[chatId] = {
         tokens: { ...defaultTokens },
@@ -315,11 +330,9 @@ bot.on('message', async (msg) => {
         intervalId: null
       };
     }
-    // Add or update the token in the chat's tracked tokens list
     trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastChange: "" };
     savePersistentData();
 
-    // If no aggregated (pinned) message exists yet for this chat, send one and pin it.
     if (!trackedChats[chatId].pinnedMessageId) {
       const aggregated = generateAggregatedMessage(chatId);
       try {
@@ -336,7 +349,6 @@ bot.on('message', async (msg) => {
         return;
       }
     } else {
-      // If an aggregated message already exists, update it immediately.
       const aggregated = generateAggregatedMessage(chatId);
       try {
         await bot.editMessageText(aggregated.text, {
@@ -350,7 +362,6 @@ bot.on('message', async (msg) => {
         console.error("Error updating aggregated message:", err.toString());
       }
     }
-    // Start (or ensure) the update loop for this chat is running.
     startUpdateLoop(chatId);
   } else {
     debugLog("Message did not match tracking pattern");
