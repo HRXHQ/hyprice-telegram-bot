@@ -115,7 +115,7 @@ async function updateChatTokens(chatId) {
   return updated;
 }
 
-// Send the aggregated watchlist message to the chat (without pinning)
+// Send the aggregated watchlist message (updates on demand, not pinned)
 async function sendWatchlist(chatId) {
   await updateChatTokens(chatId);
   const aggregated = generateAggregatedMessage(chatId);
@@ -125,7 +125,7 @@ async function sendWatchlist(chatId) {
   });
 }
 
-// /start command: Initialize the chat (load default tokens if necessary) and send a welcome message.
+// /start command: Initialize the chat and send a welcome message.
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   if (!trackedChats[chatId]) {
@@ -141,13 +141,13 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, welcome, { parse_mode: "HTML" });
 });
 
-// /help command: Display instructions
+// /help command: Display instructions.
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   const helpMsg = `<b>Hyprice Bot - What I Can Do:</b>\n\n` +
                   `• <b>Track Tokens:</b> Send <code>$SYMBOL: pair_address</code> to add a token to your watchlist.\n` +
                   `• <b>View Watchlist:</b> Use /watchlist to see the latest prices and 24h changes.\n` +
-                  `• <b>Remove Tokens:</b> Press the "❌ Remove" button next to a token to delete it from your watchlist.\n\n` +
+                  `• <b>Remove Tokens:</b> Press the "❌ Remove" button to delete a token from your watchlist.\n\n` +
                   `Default tokens are loaded automatically on /start.`;
   bot.sendMessage(chatId, helpMsg, { parse_mode: "HTML" });
 });

@@ -17,10 +17,11 @@ async function getTokenData(pairAddress) {
     }
     const html = await response.text();
     const $ = cheerio.load(html);
-    // Attempt to extract the USD price and 24h change using data-testid attributes.
+    // Adjust the selectors by inspecting the page source.
+    // Here we assume the USD price is in a <span> with data-testid="PairPrice"
+    // and the 24h change in a <span> with data-testid="PairPriceChange".
     let price = $('span[data-testid="PairPrice"]').first().text().trim();
     if (!price) {
-      // Fallback selector if needed
       price = $('span.price').first().text().trim();
     }
     let priceChange = $('span[data-testid="PairPriceChange"]').first().text().trim();
