@@ -35,7 +35,7 @@ if (fs.existsSync(DATA_FILE)) {
   }
 }
 
-// Define default tokens with the correct token addresses (using your correct token address)
+// Define default tokens (using the correct token address format)
 const defaultTokens = {
   "HYPE": { 
     pairAddress: "0x13ba5fea7078ab3798fbce53b4d0721c", 
@@ -103,7 +103,7 @@ async function updateChatTokens(chatId) {
     try {
       const data = await getTokenData(tokenInfo.pairAddress);
       if (data && data.priceUsd && data.priceChange) {
-        // Remove any non-numeric characters from price and format
+        // Clean and format the price
         const cleanPrice = parseFloat(data.priceUsd.replace(/[^0-9.]/g, ''));
         tokenInfo.lastPrice = isNaN(cleanPrice) ? "N/A" : cleanPrice.toFixed(4);
         // Process the 24h change
@@ -139,7 +139,7 @@ async function sendWatchlist(chatId) {
   });
 }
 
-// /start command: Initialize the chat and load default tokens if needed, then send a welcome message.
+// /start command: Initialize the chat and load default tokens if needed.
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   if (!trackedChats[chatId]) {
@@ -163,7 +163,7 @@ bot.onText(/\/help/, (msg) => {
     + `<b>Add Token:</b>\nSend a message in the format: <code>$SYMBOL: token_address</code>\n\n`
     + `<b>View Watchlist:</b>\nUse /watchlist to see the latest prices and 24h changes.\n\n`
     + `<b>Remove Token:</b>\nPress the "❌ Remove" button to remove a token.\n\n`
-    + `Addresses must be valid Hyperliquid token addresses (starting with 0x).\n`;
+    + `Addresses must be valid Hyperliquid token addresses (starting with 0x).`;
   bot.sendMessage(chatId, helpMsg, { parse_mode: "HTML" });
 });
 
@@ -202,8 +202,8 @@ bot.on('message', async (msg) => {
   if (!msg.text) return;
   const text = msg.text.trim();
   // Expect messages in the format: $SYMBOL: token_address
-  // Adjust the regex to accept addresses between 36 and 42 characters (e.g., 0x followed by 34–40 hex digits)
-  const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{34,42})$/;
+  // Accept token addresses with length between 36 and 42 characters.
+  const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{36,42})$/;
   const match = text.match(pattern);
   if (match) {
     const symbol = match[1];
