@@ -6,6 +6,10 @@ require('dotenv').config();
 // Import necessary modules
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const fs = require('fs');
+
+// Define the persistent data file
+const DATA_FILE = 'trackedChats.json';
 
 // Retrieve the Telegram bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -17,8 +21,46 @@ if (!token) {
 // Create a new Telegram bot instance using polling
 const bot = new TelegramBot(token, { polling: true });
 
-// Global object to store tracked tokens per chat.
-const trackedChats = {};
+// Global object for runtime data (includes persistent tokens plus runtime fields)
+let trackedChats = {};
+
+// Load persistent data (tokens only) from DATA_FILE if available
+if (fs.existsSync(DATA_FILE)) {
+  try {
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    // For each chat in persistent data, set runtime fields to null
+    for (const chatId in data) {
+      trackedChats[chatId] = {
+        tokens: data[chatId],
+        pinnedMessageId: null,
+        intervalId: null
+      };
+    }
+    console.log("[DEBUG] Persistent data loaded.");
+  } catch (err) {
+    console.error("Error reading persistent data:", err);
+  }
+}
+
+// Define default tokens
+const defaultTokens = {
+  "HYPE": { pairAddress: "0x13ba5fea7078ab3798fbce53b4d0721c", lastPrice: null, lastChange: "" },
+  "HFUN": { pairAddress: "0x929bdfee96b790d3ff9a6cb31e96147e", lastPrice: null, lastChange: "" }
+};
+
+// Save persistent tokens (only the tokens field) to file
+function savePersistentData() {
+  let dataToSave = {};
+  for (const chatId in trackedChats) {
+    dataToSave[chatId] = trackedChats[chatId].tokens;
+  }
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(dataToSave, null, 2));
+    console.log("[DEBUG] Persistent data saved.");
+  } catch (err) {
+    console.error("Error saving persistent data:", err);
+  }
+}
 
 // Debug logging function
 function debugLog(...args) {
@@ -29,7 +71,7 @@ function debugLog(...args) {
 bot.on("polling_error", (error) => {
   console.error("Polling error:", error);
   if (error && error.message && error.message.includes("409 Conflict")) {
-    console.error("409 Conflict detected. This instance will stop polling to avoid duplicate instances.");
+    console.error("409 Conflict detected. Stopping polling.");
     bot.stopPolling();
   }
 });
@@ -53,13 +95,12 @@ async function fetchTokenData(pairAddress) {
 
 /**
  * Generate an aggregated message and inline keyboard for a chat based on its tracked tokens.
- * This message is formatted in HTML.
+ * Uses HTML formatting.
  * @param {string} chatId - The chat identifier.
  * @returns {object} - { text: string, inlineKeyboard: object }
  */
 function generateAggregatedMessage(chatId) {
   const chatData = trackedChats[chatId];
-  // Header with the new title and description.
   let text = `<b>Hyprice Watchlist</b>\n`;
   text += `<i>The ultimate bot for Hyperliquid price tracking and personalized token watchlists.</i>\n\n`;
   text += `<b>Tracked Tokens:</b>\n\n`;
@@ -68,11 +109,19 @@ function generateAggregatedMessage(chatId) {
   for (const tokenSymbol in chatData.tokens) {
     const tokenData = chatData.tokens[tokenSymbol];
     text += `<b>$${tokenSymbol}</b>: <code>${tokenData.pairAddress}</code>\n`;
-    text += `Price: <b>$${tokenData.lastPrice || "N/A"}</b> - 24h Change: <b>${tokenData.lastChange || "N/A"}</b>\n\n`;
+    text += `Price: <b>$${tokenData.lastPrice || "N/A"}</b>`;
+    if (tokenData.lastChange && tokenData.lastChange !== "") {
+      text += ` (${tokenData.lastChange})`;
+    }
+    text += `\n\n`;
     inlineKeyboard.push([
       {
         text: `📈 View $${tokenSymbol}`,
         url: `https://dexscreener.com/hyperliquid/${tokenData.pairAddress}`
+      },
+      {
+        text: `❌ Remove`,
+        callback_data: `remove_${tokenSymbol}`
       }
     ]);
   }
@@ -91,19 +140,14 @@ async function updateChatTokens(chatId) {
     const tokenInfo = chatData.tokens[tokenSymbol];
     const data = await fetchTokenData(tokenInfo.pairAddress);
     if (data && data.pair) {
-      // Get the new price and 24h change
       const newPrice = data.pair.priceUsd || "N/A";
-      // Assume the 24h price change is available in data.pair.priceChange
+      // Assume the 24h change is provided as data.pair.priceChange
       const changeStr = data.pair.priceChange;
-      let changeIndicator = "N/A";
+      let changeIndicator = "";
       if (changeStr) {
         const num = parseFloat(changeStr);
         if (!isNaN(num)) {
-          if (num >= 0) {
-            changeIndicator = "🟢 +" + num.toFixed(2) + "%";
-          } else {
-            changeIndicator = "🔴 " + num.toFixed(2) + "%";
-          }
+          changeIndicator = (num >= 0 ? "🟢 +" : "🔴 ") + num.toFixed(2) + "%";
         }
       }
       tokenInfo.lastPrice = newPrice;
@@ -146,6 +190,15 @@ function startUpdateLoop(chatId) {
 // Handle the /start command with HTML formatting.
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
+  // If this chat is not already in trackedChats, initialize with default tokens.
+  if (!trackedChats[chatId]) {
+    trackedChats[chatId] = {
+      tokens: { ...defaultTokens },
+      pinnedMessageId: null,
+      intervalId: null
+    };
+    savePersistentData();
+  }
   const welcomeMessage =
     `<b>Welcome to the Hyprice Telegram Bot!</b>\n\n` +
     `To track a token, send a message in the following format:\n` +
@@ -164,13 +217,13 @@ bot.onText(/\/help/, (msg) => {
   const helpMessage = `
 <b>Hyprice Bot - What I Can Do:</b>
 
-• <b>Track Tokens:</b> Send me a message in the format <code>$SYMBOL: pair_address</code> and I will track the token's price from DexScreener (Hyperliquid chain).
+• <b>Track Tokens:</b> Send a message in the format <code>$SYMBOL: pair_address</code> to track a token's price on the Hyperliquid chain.
 
 • <b>Aggregated Updates:</b> All tokens you track in a chat are combined into one pinned message that updates every 15 seconds with the latest prices and 24h changes.
 
-• <b>View Details:</b> Each token in the pinned message has a button to view more details on DexScreener.
+• <b>View Details:</b> Each token in the pinned message has a "View" button to see more details on DexScreener.
 
-• <b>User-Friendly Interface:</b> I use HTML formatting to display a clean and professional summary of all tracked tokens.
+• <b>Remove Tokens:</b> Use the "Remove" button next to a token to delete it from your watchlist.
 
 Simply add your tokens and use /help anytime to see this message again.
   `;
@@ -179,10 +232,41 @@ Simply add your tokens and use /help anytime to see this message again.
     .catch(err => console.error("Error sending /help message:", err.toString()));
 });
 
+// Listen for callback queries (for removing tokens)
+bot.on('callback_query', async (callbackQuery) => {
+  const message = callbackQuery.message;
+  const chatId = message.chat.id;
+  const data = callbackQuery.data;
+  if (data.startsWith("remove_")) {
+    const tokenSymbol = data.replace("remove_", "");
+    if (trackedChats[chatId] && trackedChats[chatId].tokens[tokenSymbol]) {
+      delete trackedChats[chatId].tokens[tokenSymbol];
+      savePersistentData();
+      // Update the aggregated message
+      const aggregated = generateAggregatedMessage(chatId);
+      try {
+        await bot.editMessageText(aggregated.text, {
+          chat_id: chatId,
+          message_id: trackedChats[chatId].pinnedMessageId,
+          reply_markup: aggregated.inlineKeyboard,
+          parse_mode: "HTML"
+        });
+        bot.answerCallbackQuery(callbackQuery.id, { text: `Removed $${tokenSymbol} from watchlist.` });
+      } catch (err) {
+        console.error("Error updating message after removal:", err.toString());
+        bot.answerCallbackQuery(callbackQuery.id, { text: "Error removing token." });
+      }
+    } else {
+      bot.answerCallbackQuery(callbackQuery.id, { text: "Token not found." });
+    }
+  } else {
+    bot.answerCallbackQuery(callbackQuery.id);
+  }
+});
+
 // Listen for messages that match the token tracking pattern.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-  // Check if msg.text exists
   if (!msg.text) {
     debugLog("No text in message, skipping.");
     return;
@@ -190,8 +274,7 @@ bot.on('message', async (msg) => {
   const text = msg.text.trim();
   debugLog("Received message:", text);
 
-  // Regex to match a tracking message of the form: "$SYMBOL: pair_address"
-  // Accepts addresses with 32 to 40 hexadecimal characters after "0x"
+  // Regex to match a tracking message: "$SYMBOL: pair_address"
   const pattern = /^\$(\w+):\s*(0x[a-fA-F0-9]{32,40})$/i;
   const match = text.match(pattern);
   if (match) {
@@ -199,12 +282,17 @@ bot.on('message', async (msg) => {
     const pairAddress = match[2];
     debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
 
-    // Initialize tracking for this chat if it doesn't exist
+    // Initialize tracking for this chat if it doesn't exist (should be set by /start already)
     if (!trackedChats[chatId]) {
-      trackedChats[chatId] = { pinnedMessageId: null, tokens: {}, intervalId: null };
+      trackedChats[chatId] = {
+        tokens: { ...defaultTokens },
+        pinnedMessageId: null,
+        intervalId: null
+      };
     }
     // Add or update the token in the chat's tracked tokens list
-    trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastChange: null };
+    trackedChats[chatId].tokens[tokenSymbol] = { pairAddress, lastPrice: null, lastChange: "" };
+    savePersistentData();
 
     // If no aggregated (pinned) message exists yet for this chat, send one and pin it.
     if (!trackedChats[chatId].pinnedMessageId) {
@@ -237,7 +325,6 @@ bot.on('message', async (msg) => {
         console.error("Error updating aggregated message:", err.toString());
       }
     }
-
     // Start (or ensure) the update loop for this chat is running.
     startUpdateLoop(chatId);
   } else {
