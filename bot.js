@@ -17,6 +17,11 @@ if (!token) {
 // Create a new Telegram bot instance using polling
 const bot = new TelegramBot(token, { polling: true });
 
+// Helper function for debug logging
+function debugLog(...args) {
+  console.log("[DEBUG]", ...args);
+}
+
 /**
  * Fetch token data from DexScreener API.
  * @param {string} pairAddress - The token pair contract address.
@@ -24,10 +29,12 @@ const bot = new TelegramBot(token, { polling: true });
  */
 async function fetchTokenData(pairAddress) {
   try {
+    debugLog("Fetching token data for", pairAddress);
     const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${pairAddress}`);
+    debugLog("Received token data:", response.data);
     return response.data;
   } catch (error) {
-    console.error("Error fetching token data:", error);
+    console.error("Error fetching token data:", error.toString());
     return null;
   }
 }
@@ -41,14 +48,17 @@ bot.onText(/\/start/, (msg) => {
     "$SYMBOL: pair_address\n\n" +
     "Example:\n" +
     "$HYPE: 0x13ba5fea7078ab3798fbce53b4d0721c";
-  bot.sendMessage(chatId, welcomeMessage);
+  bot.sendMessage(chatId, welcomeMessage)
+    .then(() => debugLog("Sent welcome message"))
+    .catch(err => console.error("Error sending /start message:", err.toString()));
 });
 
 // Listen for messages to add token tracking
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text && msg.text.trim();
-  
+  debugLog("Received message:", text);
+
   // Regex to match the token tracking format, e.g., "$HYPE: 0x..."
   const pairRegex = /^\$(\w+):\s*(0x[a-fA-F0-9]{40})$/i;
   const match = text.match(pairRegex);
@@ -56,8 +66,7 @@ bot.on('message', async (msg) => {
   if (match) {
     const tokenSymbol = match[1];
     const pairAddress = match[2];
-    
-    console.log(`Received tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
+    debugLog(`Tracking request for ${tokenSymbol} with pair address: ${pairAddress}`);
     
     // Fetch initial token data from DexScreener
     let tokenData = await fetchTokenData(pairAddress);
@@ -91,13 +100,16 @@ bot.on('message', async (msg) => {
       ]
     };
     
-    // Send the tracking message and pin it
+    // Send the tracking message and attempt to pin it
     let sentMessage;
     try {
       sentMessage = await bot.sendMessage(chatId, messageText, { reply_markup: inlineKeyboard });
+      debugLog("Sent tracking message, id:", sentMessage.message_id);
+      
       await bot.pinChatMessage(chatId, sentMessage.message_id);
+      debugLog("Pinned tracking message");
     } catch (err) {
-      console.error("Error sending or pinning message:", err);
+      console.error("Error sending or pinning message:", err.toString());
       bot.sendMessage(chatId, "Error sending or pinning tracking message. Ensure the bot has permission to pin messages.");
       return;
     }
@@ -105,10 +117,16 @@ bot.on('message', async (msg) => {
     // Set up periodic updates every 15 seconds to refresh the pinned message
     setInterval(async () => {
       let updatedData = await fetchTokenData(pairAddress);
-      if (!updatedData) return;
+      if (!updatedData) {
+        debugLog("Updated data is null");
+        return;
+      }
       
       const updatedPair = updatedData.pairs && updatedData.pairs[0];
-      if (!updatedPair) return;
+      if (!updatedPair) {
+        debugLog("No updated pair data found");
+        return;
+      }
       
       const updatedPrice = updatedPair.priceUsd || "N/A";
       let updatedText = `Tracking Token: $${tokenSymbol}\n` +
@@ -122,16 +140,15 @@ bot.on('message', async (msg) => {
           message_id: sentMessage.message_id, 
           reply_markup: inlineKeyboard 
         });
+        debugLog("Updated tracking message with new price:", updatedPrice);
       } catch (err) {
-        console.error("Error updating pinned message:", err);
+        console.error("Error updating pinned message:", err.toString());
       }
     }, 15000); // 15 seconds interval
     
-    return; // Exit after processing a valid token tracking request
+  } else {
+    debugLog("Message did not match tracking pattern");
   }
-  
-  // (Optional) You could send a notice if the message format is unrecognized.
-  // For now, non-matching messages are ignored.
 });
 
-console.log("Hyprice Telegram Bot is running...");
+debugLog("Hyprice Telegram Bot is running...");
