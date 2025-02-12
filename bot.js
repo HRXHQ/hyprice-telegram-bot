@@ -84,12 +84,15 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    // Assume the token data includes an array "pairs" with trading pair info.
-    const pair = tokenData.pairs && tokenData.pairs[0];
-    if (!pair) {
+    // Check if tokenData contains trading pairs
+    if (!tokenData.pairs || tokenData.pairs.length === 0) {
+      debugLog("tokenData received but no trading pairs found:", tokenData);
       bot.sendMessage(chatId, "No trading pairs found for this token.");
       return;
     }
+
+    // Assume the token data includes an array "pairs" with trading pair info.
+    const pair = tokenData.pairs[0];
 
     const price = pair.priceUsd || "N/A";
     let messageText = `Tracking Token: $${tokenSymbol}\n` +
@@ -130,12 +133,12 @@ bot.on('message', async (msg) => {
         return;
       }
 
-      const updatedPair = updatedData.pairs && updatedData.pairs[0];
-      if (!updatedPair) {
-        debugLog("No updated pair data found");
+      if (!updatedData.pairs || updatedData.pairs.length === 0) {
+        debugLog("No updated pair data found. Updated tokenData:", updatedData);
         return;
       }
 
+      const updatedPair = updatedData.pairs[0];
       const updatedPrice = updatedPair.priceUsd || "N/A";
       let updatedText = `Tracking Token: $${tokenSymbol}\n` +
                         `Pair Address: ${pairAddress}\n` +
