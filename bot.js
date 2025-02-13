@@ -18,10 +18,10 @@ if (!token) {
 // Create a new Telegram bot instance using polling
 const bot = new TelegramBot(token, { polling: true });
 
-// Define the persistent data file
+// Define the persistent data file name
 const DATA_FILE = 'trackedChats.json';
 
-// Global object for storing watchlists by chat ID
+// Global object for storing watchlists by chat ID.
 // Structure: { [chatId]: { tokens: { SYMBOL: { pairAddress, lastPrice, lastChange } } } }
 let trackedChats = {};
 
@@ -35,7 +35,7 @@ if (fs.existsSync(DATA_FILE)) {
   }
 }
 
-// Define default tokens (using the correct token address format)
+// Define default tokens (using your correct token addresses)
 const defaultTokens = {
   "HYPE": { 
     pairAddress: "0x13ba5fea7078ab3798fbce53b4d0721c", 
@@ -108,8 +108,11 @@ async function updateChatTokens(chatId) {
     try {
       const data = await getTokenData(tokenInfo.pairAddress);
       if (data && data.priceUsd && data.priceChange) {
+        // Clean and format the price
         const cleanPrice = parseFloat(data.priceUsd.replace(/[^0-9.]/g, ""));
         tokenInfo.lastPrice = isNaN(cleanPrice) ? "N/A" : cleanPrice.toFixed(4);
+        
+        // Process the 24h change
         const changeStr = data.priceChange;
         let changeIndicator = "";
         if (changeStr) {
@@ -118,6 +121,8 @@ async function updateChatTokens(chatId) {
           if (!isNaN(num)) {
             changeIndicator = (num >= 0 ? "🟢 +" : "🔴 ") + Math.abs(num).toFixed(2) + "%";
           }
+        } else {
+          changeIndicator = "N/A";
         }
         tokenInfo.lastChange = changeIndicator;
         updated = true;
@@ -221,7 +226,7 @@ bot.on('message', async (msg) => {
 
 console.log("Hyprice Tracker is running...");
 
-// Minimal HTTP server to keep Railway service alive
+// Minimal HTTP server to keep Railway alive
 const http = require('http');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
