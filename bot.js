@@ -7,7 +7,6 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const { getTokenData } = require('./hyprice');
-const express = require('express');
 
 // Retrieve the Telegram bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -64,11 +63,6 @@ function savePersistentData() {
 function debugLog(...args) {
   console.log("[DEBUG]", ...args);
 }
-
-// Handle polling errors
-bot.on("polling_error", (error) => {
-  console.error("Polling error:", error);
-});
 
 // Generate the aggregated watchlist message and inline keyboard
 function generateAggregatedMessage(chatId) {
@@ -226,13 +220,12 @@ bot.on('message', async (msg) => {
 
 console.log("Hyprice Tracker is running...");
 
-// Minimal HTTP server using Express to keep Railway alive
-const express = require('express');
-const app = express();
+// Minimal HTTP server to keep Railway alive
+const http = require('http');
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => {
-  res.status(200).send('Hyprice Tracker is running!');
-});
-app.listen(PORT, () => {
-  console.log(`Express server listening on port ${PORT}`);
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Hyprice Tracker is running!\n');
+}).listen(PORT, () => {
+  console.log(`HTTP server listening on port ${PORT}`);
 });
