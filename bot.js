@@ -18,10 +18,10 @@ if (!token) {
 // Create a new Telegram bot instance using polling
 const bot = new TelegramBot(token, { polling: true });
 
-// Define the persistent data file name
+// Define the persistent data file
 const DATA_FILE = 'trackedChats.json';
 
-// Global object for storing watchlists by chat ID.
+// Global object for storing watchlists by chat ID
 // Structure: { [chatId]: { tokens: { SYMBOL: { pairAddress, lastPrice, lastChange } } } }
 let trackedChats = {};
 
@@ -35,7 +35,7 @@ if (fs.existsSync(DATA_FILE)) {
   }
 }
 
-// Define default tokens (using your correct token addresses)
+// Define default tokens (using valid Hyperliquid token addresses)
 const defaultTokens = {
   "HYPE": { 
     pairAddress: "0x13ba5fea7078ab3798fbce53b4d0721c", 
@@ -63,11 +63,6 @@ function savePersistentData() {
 function debugLog(...args) {
   console.log("[DEBUG]", ...args);
 }
-
-// Handle polling errors
-bot.on("polling_error", (error) => {
-  console.error("Polling error:", error);
-});
 
 // Generate the aggregated watchlist message and inline keyboard
 function generateAggregatedMessage(chatId) {
@@ -111,7 +106,6 @@ async function updateChatTokens(chatId) {
         // Clean and format the price
         const cleanPrice = parseFloat(data.priceUsd.replace(/[^0-9.]/g, ""));
         tokenInfo.lastPrice = isNaN(cleanPrice) ? "N/A" : cleanPrice.toFixed(4);
-        
         // Process the 24h change
         const changeStr = data.priceChange;
         let changeIndicator = "";
